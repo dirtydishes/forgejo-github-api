@@ -1,0 +1,36 @@
+# Trimmed from https://github.com/octokit/graphql-schema/blob/82ff2d4780080e6929ebb95608cefa22dfa05ac7/schema.graphql
+# Full source SHA-256: 3c62d0526d133cee53221c89de9b455ade24db78b9e7ad56d642c4c15bce2654
+# Only G1 types and fields; descriptions and interfaces omitted. Optional repository
+# followRenames is retained as reference but is outside the implemented subset.
+
+scalar URI
+
+type Query {
+  repository(followRenames: Boolean = true, name: String!, owner: String!): Repository
+  viewer: User!
+}
+
+type Repository {
+  pullRequest(number: Int!): PullRequest
+}
+
+type PullRequest {
+  id: ID!
+  number: Int!
+  title: String!
+  state: PullRequestState!
+  url: URI!
+  isDraft: Boolean!
+  headRefName: String!
+  baseRefName: String!
+}
+
+type User {
+  login: String!
+}
+
+enum PullRequestState {
+  CLOSED
+  MERGED
+  OPEN
+}
