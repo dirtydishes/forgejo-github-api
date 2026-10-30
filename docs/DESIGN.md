@@ -62,6 +62,14 @@ client ──https──▶ reverse proxy (git.example.com)
   - `async-graphql` for the GraphQL server;
   - `reqwest` (rustls) for one shared Forgejo client with a per-request deadline and pagination
     helpers.
+- **Workspace:** two crates.
+  - `crates/fga-core`: a library holding the Forgejo client, `map/`, `ids`, and the GraphQL schema with
+    its resolvers.
+  - `crates/fga-server`: the axum binary.
+
+  gh-forgejo-shim (the CLI fallback) is meant to depend on `fga-core`. That way the Forgejo → GitHub
+  mapping is written once, and the shim can run the same GraphQL schema in-process for
+  `gh api graphql` (ChatGPT's documents).
 - **Modules:**
   - `rest/`: one handler per GitHub REST route.
   - `graphql/`: the schema subset (types, queries, mutations) plus resolvers.
