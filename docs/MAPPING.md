@@ -1,6 +1,6 @@
 # Field mapping: Forgejo → GitHub (A3)
 
-Status: v0, 2026-10-30 (Opus). The gateway (`fga-core::map`) and gh-forgejo-shim share this spec.
+Status: v1, 2026-10-30 (Opus). v1 folds in the G2a evidence (`docs/G2A-FINDINGS.md`). The gateway (`fga-core::map`) and gh-forgejo-shim share this spec.
 
 **Sources:**
 - GitHub's public GraphQL schema (`schema.docs.graphql`, fetched 2026-10-30).
@@ -32,27 +32,27 @@ only the fields we serve.
 | `MERGED` | `merged == true` |
 | `CLOSED` | `state == "closed" && !merged` |
 | `OPEN` | `state == "open"` |
-| `isDraft` | `draft` (Forgejo derives it from the WIP title prefix) |
+| `isDraft` | `draft`. Forgejo derives it from a WIP title prefix |
+| `title` | **v1 decision:** when `draft`, strip the leading Forgejo WIP prefix (configured, default `WIP:` and `[WIP]`, case-insensitive, plus following whitespace) so titles match GitHub, where draft is a flag. Mutations that set a title on a draft must re-add the prefix (G3) |
 | REST `state` | `open`/`closed`. Merged PRs are `closed`, with `merged: true` and `merged_at` set |
 
 ## 2. `mergeable`
 
+**v1, from G2a evidence:** Forgejo 15's API `mergeable` is one boolean. `pr.Mergeable()` returns false
+for *checking*, *conflict*, *error* and *WIP* alike, so the API can't prove a conflict.
+
 | GitHub | Forgejo |
 |---|---|
 | `MERGEABLE` | open, and `mergeable == true` |
-| `CONFLICTING` | open, `mergeable == false`, and the PR's status reports a conflict |
-| `UNKNOWN` | Forgejo is still checking, or the PR is closed or merged |
+| `UNKNOWN` | open and `mergeable == false` after one re-read about 300 ms later within the deadline, **or** draft (WIP always reports false), **or** closed or merged |
+| `CONFLICTING` | **Never emitted** until there's a source that proves a conflict. Candidate: a later Forgejo API field, or a dry-run merge check |
 
-- **Decision:** gh never retries, so the gateway doesn't return UNKNOWN on its own initiative. If
-  Forgejo reports "checking", it re-reads once after about 300 ms within the request deadline, then gives
-  up and returns UNKNOWN.
-- **To verify in G2:** whether Forgejo's API distinguishes "checking" from "conflict" when
-  `mergeable == false`. The swagger PR object has only the boolean, so it may need the
-  `pulls/{n}.json` web endpoint or the PR's `status` field, if Forgejo returns one undocumented.
-
+**Consequence:** `gh pr merge` attempts the merge on UNKNOWN, and Forgejo rejects a conflicting merge.
+Return that rejection as a GitHub-shaped error (G3).
 ## 3. Check contexts (`statusCheckRollup.contexts`)
 
-Forgejo has commit statuses only (`GET repos/{o}/{r}/commits/{sha}/statuses`, states `pending`,
+Forgejo has commit statuses only. Reads return the state in the field **`status`**, while POSTs send
+`state`. (`GET repos/{o}/{r}/commits/{sha}/statuses`; states `pending`,
 `success`, `error`, `failure`, `warning`). Forgejo Actions jobs report through them, with context
 `"<workflow> / <job> (<event>)"` and `target_url` pointing to the Actions run.
 
@@ -114,11 +114,12 @@ merged → `UNKNOWN`):
 
 1. `mergeable == UNKNOWN` → `UNKNOWN`.
 2. `mergeable == CONFLICTING` → `DIRTY`.
-3. `isDraft` → `DRAFT`. The value is deprecated but still in the schema, and gh doesn't block on it
-   client-side. Forgejo refuses to merge WIP PRs, so the server's error surfaces as GitHub's would.
-4. Protection `block_on_outdated_branch` and the head doesn't contain the base → `BEHIND`. Compute with
-   `GET repos/{o}/{r}/compare/{base}...{head}` and check that `behind_by > 0`; skip the check if the
-   endpoint is missing.
+3. ~~`isDraft` → `DRAFT`~~. **Removed in v1:** the GitHub twin reports `CLEAN` for a clean draft
+   (`fixtures/oracle/probe-4.stdout`). Drafts follow the remaining steps, and because their `mergeable`
+   is UNKNOWN (§2) they resolve to `UNKNOWN` at step 1.
+4. Protection `block_on_outdated_branch` and the head doesn't contain the base → `BEHIND`. Forgejo 15's Compare has no
+   `behind_by`, so use the reverse comparison `GET repos/{o}/{r}/compare/{head}...{base}` and check that
+   `total_commits > 0` (v1, G2a evidence). Skip the check if the endpoint is missing.
 5. Protection requirements unmet → `BLOCKED`. That means either `reviewDecision` ∈
    {REVIEW_REQUIRED, CHANGES_REQUESTED}, or required status contexts that are missing, pending or
    failing.
@@ -146,7 +147,7 @@ Node IDs are opaque base64 strings of `fga:<Type>:<owner>/<repo>:<number|id>`, p
 
 ## Open items to verify against the live twin (G2/G3)
 
-1. **Forgejo "checking" vs "conflict"** for `mergeable == false`.
+1. ~~Forgejo "checking" vs "conflict"~~: **resolved v1**. Not distinguishable; see §2.
 2. ~~Actions status context format~~: **verified 2026-10-30** on the twin, for example `ci / lint (push)`.
    The history keeps several rows per context, and `target_url` is relative
    (`/dirtydishes/gfj-oracle/actions/runs/5/jobs/1`).
