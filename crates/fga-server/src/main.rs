@@ -8,6 +8,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Forgejo::new(config.forgejo_url)?,
         config.public_url,
         config.ghes_version,
+        config.wip_prefixes,
     );
     let router = app(state);
     if let Some((cert, key)) = config.tls {

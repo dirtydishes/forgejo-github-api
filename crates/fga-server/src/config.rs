@@ -1,3 +1,4 @@
+use fga_core::map::WipPrefixes;
 use std::{env, net::SocketAddr, path::PathBuf};
 use url::Url;
 
@@ -6,6 +7,7 @@ pub struct Config {
     pub public_url: Url,
     pub listen: SocketAddr,
     pub ghes_version: String,
+    pub wip_prefixes: WipPrefixes,
     pub tls: Option<(PathBuf, PathBuf)>,
 }
 
@@ -23,6 +25,9 @@ impl Config {
                 .unwrap_or_else(|_| "127.0.0.1:8080".into())
                 .parse()?,
             ghes_version: env::var("FGA_GHES_VERSION").unwrap_or_else(|_| "3.19.0".into()),
+            wip_prefixes: env::var("FGA_WIP_PREFIXES")
+                .map(|value| WipPrefixes::from_csv(&value))
+                .unwrap_or_default(),
             tls,
         })
     }

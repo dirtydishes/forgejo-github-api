@@ -40,10 +40,10 @@ pub fn repository(repo: &forgejo::Repository, owner_type: &str) -> Value {
     value
 }
 
-pub fn pull_request(pr: &forgejo::PullRequest) -> Value {
+pub fn pull_request(pr: &forgejo::PullRequest, prefixes: &WipPrefixes) -> Value {
     json!({
         "number": pr.number,
-        "title": pr.title,
+        "title": title(pr, prefixes),
         "state": if pr.merged { "closed" } else { &pr.state },
         "draft": pr.draft,
         "html_url": pr.html_url,
@@ -53,3 +53,11 @@ pub fn pull_request(pr: &forgejo::PullRequest) -> Value {
         "merged_at": if pr.merged { pr.merged_at.as_ref() } else { None },
     })
 }
+
+mod checks;
+mod pulls;
+pub use checks::*;
+pub use pulls::*;
+
+#[cfg(test)]
+mod tests;

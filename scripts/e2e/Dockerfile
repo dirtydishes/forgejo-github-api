@@ -14,8 +14,12 @@ RUN arch="$(dpkg --print-architecture)" \
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates ./crates
-RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,id=fga-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=fga-g2a-target,target=/src/target \
     cargo build --workspace --locked && cp target/debug/fga-server /usr/local/bin/fga-server
 COPY scripts/e2e/client.sh /test/client.sh
 COPY scripts/e2e/assert.py /test/assert.py
 COPY fixtures/gh-pr-view.graphql /test/gh-pr-view.graphql
+
+COPY scripts/e2e/g2.sh scripts/e2e/seed.py /test/
+COPY scripts/oracle /test/oracle-scripts
+COPY fixtures/oracle /test/oracle
