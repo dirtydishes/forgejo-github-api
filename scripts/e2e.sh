@@ -21,6 +21,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/oracle/test_oracle.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/e2e/test_seed.py
 docker info >/dev/null
 docker build -f scripts/e2e/Dockerfile -t "$image" .
 docker network create "$run" >/dev/null

@@ -70,7 +70,7 @@ pub async fn pulls(
         return invalid_query();
     }
     let pulls = match session
-        .pull_requests(&owner, &name, filter, query.head.as_deref())
+        .pull_requests(&owner, &name, filter, query.head.as_deref(), None)
         .await
     {
         Ok(pulls) => pulls,
@@ -131,7 +131,29 @@ pub async fn pull(
     State(state): State<AppState>,
     Extension(session): Extension<Session>,
     Path((owner, repo, number)): Path<(String, String, i32)>,
+    headers: HeaderMap,
 ) -> Response {
+    if headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.split(',').any(|v| {
+                v.trim().starts_with("application/vnd.github.v3.diff")
+                    || v.trim().starts_with("application/vnd.github.diff")
+            })
+        })
+    {
+        return match session
+            .read_text(
+                &["repos", &owner, &repo, "pulls", &format!("{number}.diff")],
+                &[],
+            )
+            .await
+        {
+            Ok(diff) => ([("content-type", "text/plain; charset=utf-8")], diff).into_response(),
+            Err(e) => rest_error(e),
+        };
+    }
     match session.pull_request(&owner, &repo, number).await {
         Ok(pr) => {
             let mut value = map::pull_request(&pr, &state.wip_prefixes);
@@ -140,4 +162,101 @@ pub async fn pull(
         }
         Err(e) => rest_error(e),
     }
+}
+
+pub async fn commit_pulls(
+    State(state): State<AppState>,
+    Extension(session): Extension<Session>,
+    Path((owner, repo, sha)): Path<(String, String, String)>,
+) -> Response {
+    let result = async {
+        let mut pulls = session
+            .pull_requests(&owner, &repo, "all", None, None)
+            .await?;
+        pulls.retain(|p| p.head.sha == sha);
+        // Forgejo's singular route also knows merged commits. Preserve additional
+        // open PRs sharing the head, which that route alone cannot represent.
+        match session
+            .read_json(&["repos", &owner, &repo, "commits", &sha, "pull"], &[])
+            .await
+        {
+            Ok(value) => {
+                let pr: fga_core::forgejo::PullRequest = serde_json::from_value(value)
+                    .map_err(|_| fga_core::forgejo::Error::Upstream)?;
+                if !pulls.iter().any(|p| p.number == pr.number) {
+                    pulls.push(pr);
+                }
+            }
+            Err(fga_core::forgejo::Error::NotFound) if pulls.is_empty() => {
+                session
+                    .read_json(&["repos", &owner, &repo, "git", "commits", &sha], &[])
+                    .await?;
+            }
+            Err(fga_core::forgejo::Error::NotFound) => {}
+            Err(e) => return Err(e),
+        }
+        pulls.sort_by_key(|p| p.number);
+        Ok(Json(
+            pulls
+                .iter()
+                .map(|p| map::pull_request(p, &state.wip_prefixes))
+                .collect::<Vec<_>>(),
+        )
+        .into_response())
+    }
+    .await;
+    result.unwrap_or_else(rest_error)
+}
+
+pub async fn readme(
+    Extension(session): Extension<Session>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let result = async {
+        let entries = session
+            .read_json(&["repos", &owner, &repo, "contents"], &[])
+            .await?;
+        let entries = entries
+            .as_array()
+            .ok_or(fga_core::forgejo::Error::Upstream)?;
+        let entry = entries
+            .iter()
+            .find(|e| {
+                e["type"] == "file"
+                    && e["name"]
+                        .as_str()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("README.md"))
+            })
+            .or_else(|| {
+                entries.iter().find(|e| {
+                    e["type"] == "file"
+                        && e["name"]
+                            .as_str()
+                            .is_some_and(|name| name.eq_ignore_ascii_case("README"))
+                })
+            })
+            .ok_or(fga_core::forgejo::Error::NotFound)?;
+        let path = entry["path"]
+            .as_str()
+            .ok_or(fga_core::forgejo::Error::Upstream)?;
+        let value = session
+            .read_json(&["repos", &owner, &repo, "contents", path], &[])
+            .await?;
+        if headers
+            .get("accept")
+            .and_then(|h| h.to_str().ok())
+            .is_some_and(|h| h.contains("raw"))
+        {
+            Ok((
+                [("content-type", "text/plain; charset=utf-8")],
+                session.file_text(&owner, &repo, path).await?,
+            )
+                .into_response())
+        } else {
+            Ok(Json(value).into_response())
+        }
+    }
+    .await;
+    result.unwrap_or_else(rest_error)
 }

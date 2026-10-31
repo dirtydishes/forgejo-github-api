@@ -1,5 +1,6 @@
 pub mod config;
 mod rest;
+mod runs;
 
 use async_graphql::Request;
 use axum::{
@@ -54,6 +55,24 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/api/v3/repos/{owner}/{repo}/pulls/{number}",
             get(rest::pull),
+        )
+        .route("/api/v3/repos/{owner}/{repo}/readme", get(rest::readme))
+        .route(
+            "/api/v3/repos/{owner}/{repo}/commits/{sha}/pulls",
+            get(rest::commit_pulls),
+        )
+        .route("/api/v3/repos/{owner}/{repo}/actions/runs", get(runs::runs))
+        .route(
+            "/api/v3/repos/{owner}/{repo}/actions/runs/{id}",
+            get(runs::run),
+        )
+        .route(
+            "/api/v3/repos/{owner}/{repo}/actions/workflows",
+            get(runs::workflows),
+        )
+        .route(
+            "/api/v3/repos/{owner}/{repo}/actions/workflows/{id}",
+            get(runs::workflow),
         )
         .route("/api/graphql", post(graphql_request))
         .fallback(|| async { rest_error(Error::NotFound) })

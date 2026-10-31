@@ -25,101 +25,61 @@ impl Query {
         Ok(Some(Repository { source }))
     }
     async fn node(&self, ctx: &Context<'_>, id: ID) -> async_graphql::Result<Option<Node>> {
-        let Some(id) = ids::decode(&id).filter(|id| id.kind == "PullRequest") else {
+        let Some(id) = ids::decode(&id) else {
             return Ok(None);
         };
-        match ctx
-            .data_unchecked::<Session>()
-            .pull_request(&id.owner, &id.repository, id.number)
-            .await
-        {
-            Ok(source) => Ok(Some(
-                PullRequest::new(source, &id.owner, &id.repository).into(),
-            )),
+        let session = ctx.data_unchecked::<Session>();
+        let result = match id.kind.as_str() {
+            "PullRequest" => session
+                .pull_request(&id.owner, &id.repository, id.number)
+                .await
+                .map(|source| PullRequest::new(source, &id.owner, &id.repository).into()),
+            "Issue" => session
+                .issue(&id.owner, &id.repository, id.number)
+                .await
+                .map(|source| Issue::new(source, &id.owner, &id.repository).into()),
+            _ => return Ok(None),
+        };
+        match result {
+            Ok(node) => Ok(Some(node)),
             Err(forgejo::Error::NotFound) => Ok(None),
             Err(e) => Err(error(e)),
         }
     }
-    /// Only the repo-scoped author/review-request searches used by gh pr status.
+    /// Repo-scoped PR and issue search, including gh status and list filters.
     async fn search(
         &self,
         ctx: &Context<'_>,
         query: String,
         r#type: SearchType,
         first: Option<i32>,
+        last: Option<i32>,
         after: Option<String>,
     ) -> async_graphql::Result<SearchResultItemConnection> {
-        if r#type != SearchType::Issue {
-            return Err("only PR status searches are supported".into());
+        if !matches!(r#type, SearchType::Issue | SearchType::IssueAdvanced) {
+            return Err("only ISSUE searches are supported".into());
         }
-        let mut repository = None;
-        let mut author = None;
-        let mut reviewer = None;
-        let mut open = false;
-        for term in query.split_whitespace() {
-            if let Some(value) = term.strip_prefix("repo:") {
-                repository = value.split_once('/');
-            } else if let Some(value) = term.strip_prefix("author:") {
-                author = Some(value);
-            } else if let Some(value) = term.strip_prefix("review-requested:") {
-                reviewer = Some(value);
-            } else if term == "state:open" {
-                open = true;
-            } else if term != "is:pr" {
-                return Err("unsupported PR status search qualifier".into());
-            }
-        }
-        let (owner, repo) = repository.ok_or("PR status search requires repo qualifier")?;
-        if !open || author.is_none() == reviewer.is_none() {
-            return Err("unsupported PR status search".into());
-        }
-        let pulls = ctx
-            .data_unchecked::<Session>()
-            .pull_requests(owner, repo, "open", None)
-            .await
-            .map_err(error)?;
-        let nodes = pulls
-            .into_iter()
-            .filter(|pr| {
-                author.is_none_or(|login| pr.user.login.eq_ignore_ascii_case(login))
-                    && reviewer.is_none_or(|login| {
-                        pr.requested_reviewers.as_ref().is_some_and(|users| {
-                            users.iter().any(|u| u.login.eq_ignore_ascii_case(login))
-                        })
-                    })
-            })
-            .map(|source| PullRequest::new(source, owner, repo))
-            .collect();
-        let p = page(nodes, first, None, after, None)?;
-        Ok(SearchResultItemConnection {
-            issue_count: p.total,
-            page_info: p.info,
-            edges: Some(
-                p.nodes
-                    .into_iter()
-                    .map(|pr| {
-                        Some(SearchResultItemEdge {
-                            node: Some(pr.into()),
-                        })
-                    })
-                    .collect(),
-            ),
-        })
+        super::search::search(ctx, &query, first, last, after).await
     }
 }
 #[derive(Interface)]
 #[graphql(field(name = "id", ty = "ID"))]
 pub enum Node {
     PullRequest(PullRequest),
+    Issue(Issue),
 }
-#[derive(Union)]
+#[derive(Clone, Union)]
 pub enum SearchResultItem {
     PullRequest(PullRequest),
+    Issue(Issue),
 }
 #[derive(Clone, Copy, Eq, PartialEq, Enum)]
 pub enum SearchType {
     Discussion,
     Issue,
+    IssueAdvanced,
+    IssueSemantic,
+    IssueHybrid,
     Repository,
     User,
 }
@@ -173,6 +133,90 @@ impl Repository {
             User(self.source.owner.clone()).into()
         })
     }
+    async fn description(&self) -> Option<String> {
+        Some(self.source.description.clone())
+    }
+    async fn is_private(&self) -> bool {
+        self.source.private
+    }
+    async fn is_fork(&self) -> bool {
+        self.source.fork
+    }
+    async fn is_archived(&self) -> bool {
+        self.source.archived
+    }
+    async fn has_issues_enabled(&self) -> bool {
+        self.source.has_issues
+    }
+    async fn has_wiki_enabled(&self) -> bool {
+        self.source.has_wiki
+    }
+    async fn database_id(&self) -> Option<i32> {
+        i32::try_from(self.source.id).ok()
+    }
+    async fn ssh_url(&self) -> GitSshRemote {
+        GitSshRemote(self.source.ssh_url.clone())
+    }
+    async fn viewer_permission(&self) -> Option<RepositoryPermission> {
+        self.source.permissions.as_ref().map(|p| {
+            if p.admin {
+                RepositoryPermission::Admin
+            } else if p.push {
+                RepositoryPermission::Write
+            } else {
+                RepositoryPermission::Read
+            }
+        })
+    }
+    async fn parent(&self) -> Option<Repository> {
+        self.source
+            .parent
+            .as_ref()
+            .map(|r| Repository { source: *r.clone() })
+    }
+    async fn issue(&self, ctx: &Context<'_>, number: i32) -> async_graphql::Result<Option<Issue>> {
+        let source = ctx
+            .data_unchecked::<Session>()
+            .issue(&self.source.owner.login, &self.source.name, number)
+            .await
+            .map_err(error)?;
+        Ok(Some(Issue::new(
+            source,
+            &self.source.owner.login,
+            &self.source.name,
+        )))
+    }
+    async fn issue_or_pull_request(
+        &self,
+        ctx: &Context<'_>,
+        number: i32,
+    ) -> async_graphql::Result<Option<IssueOrPullRequest>> {
+        match ctx
+            .data_unchecked::<Session>()
+            .issue(&self.source.owner.login, &self.source.name, number)
+            .await
+        {
+            Ok(source) => Ok(Some(
+                Issue::new(source, &self.source.owner.login, &self.source.name).into(),
+            )),
+            Err(forgejo::Error::NotFound) => {
+                Ok(self.pull_request(ctx, number).await?.map(Into::into))
+            }
+            Err(e) => Err(error(e)),
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn issues(
+        &self,
+        ctx: &Context<'_>,
+        states: Option<Vec<IssueState>>,
+        filter_by: Option<IssueFilters>,
+        first: Option<i32>,
+        after: Option<String>,
+        order_by: Option<IssueOrder>,
+    ) -> async_graphql::Result<IssueConnection> {
+        super::issues::list(ctx, &self.source, states, filter_by, first, after, order_by).await
+    }
     async fn default_branch_ref(&self) -> Option<Ref> {
         Some(Ref {
             name: self.source.default_branch.clone(),
@@ -195,10 +239,13 @@ impl Repository {
             &self.source.name,
         )))
     }
+    #[allow(clippy::too_many_arguments)]
     async fn pull_requests(
         &self,
         ctx: &Context<'_>,
         head_ref_name: Option<String>,
+        base_ref_name: Option<String>,
+        states: Option<Vec<crate::map::PullRequestState>>,
         first: Option<i32>,
         after: Option<String>,
         order_by: Option<IssueOrder>,
@@ -211,12 +258,26 @@ impl Repository {
         let owner = &self.source.owner.login;
         let pulls = ctx
             .data_unchecked::<Session>()
-            .pull_requests(owner, &self.source.name, "all", head_ref_name.as_deref())
+            .pull_requests(
+                owner,
+                &self.source.name,
+                "all",
+                head_ref_name.as_deref(),
+                None,
+            )
             .await
             .map_err(error)?;
         Ok(page(
             pulls
                 .into_iter()
+                .filter(|pr| {
+                    base_ref_name
+                        .as_ref()
+                        .is_none_or(|base| pr.base.ref_name == *base)
+                        && states
+                            .as_ref()
+                            .is_none_or(|states| states.contains(&crate::map::state(pr)))
+                })
                 .map(|source| PullRequest::new(source, owner, &self.source.name))
                 .collect(),
             first,
@@ -226,4 +287,13 @@ impl Repository {
         )?
         .into())
     }
+}
+
+#[derive(Clone, Copy, Enum, Eq, PartialEq)]
+pub enum RepositoryPermission {
+    Admin,
+    Maintain,
+    Read,
+    Triage,
+    Write,
 }

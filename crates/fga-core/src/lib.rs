@@ -3,3 +3,6 @@ pub mod forgejo;
 pub mod graphql;
 pub mod ids;
 pub mod map;
+
+pub mod actions;
+pub mod search;

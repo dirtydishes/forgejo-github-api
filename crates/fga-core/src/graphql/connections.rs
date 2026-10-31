@@ -125,6 +125,7 @@ pub struct SearchResultItemEdge {
 }
 #[derive(SimpleObject)]
 pub struct SearchResultItemConnection {
+    pub nodes: Option<Vec<Option<SearchResultItem>>>,
     pub edges: Option<Vec<Option<SearchResultItemEdge>>>,
     pub issue_count: i32,
     pub page_info: PageInfo,

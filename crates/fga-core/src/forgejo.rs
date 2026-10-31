@@ -10,6 +10,7 @@ use tokio::sync::OnceCell;
 use url::Url;
 
 mod cache;
+mod reads;
 mod types;
 use cache::SessionCache;
 pub use types::*;
@@ -99,12 +100,12 @@ impl Forgejo {
         })
     }
 
-    async fn get<T: DeserializeOwned>(
+    async fn request(
         &self,
         segments: &[&str],
         query: &[(&str, String)],
         authorization: &str,
-    ) -> Result<(T, bool), Error> {
+    ) -> Result<reqwest::Response, Error> {
         let mut url = self.base.clone();
         url.path_segments_mut()
             .map_err(|_| Error::Upstream)?
@@ -132,6 +133,16 @@ impl Forgejo {
             status if !status.is_success() => return Err(Error::Upstream),
             _ => {}
         }
+        Ok(response)
+    }
+
+    async fn get<T: DeserializeOwned>(
+        &self,
+        segments: &[&str],
+        query: &[(&str, String)],
+        authorization: &str,
+    ) -> Result<(T, bool), Error> {
+        let response = self.request(segments, query, authorization).await?;
         // Follow only the page number, never an upstream-provided URL with our token.
         let has_next = response
             .headers()
@@ -362,20 +373,21 @@ impl Session {
         name: &str,
         state: &str,
         head: Option<&str>,
+        poster: Option<&str>,
     ) -> Result<Vec<PullRequest>, Error> {
         let mut pulls = Vec::new();
         let mut page = 1_u64;
         loop {
-            let (batch, has_next): (Vec<Option<PullRequest>>, _) = self
-                .get(
-                    &["repos", owner, name, "pulls"],
-                    &[
-                        ("state", state.to_owned()),
-                        ("limit", "50".into()),
-                        ("page", page.to_string()),
-                    ],
-                )
-                .await?;
+            let mut query = vec![
+                ("state", state.to_owned()),
+                ("limit", "50".into()),
+                ("page", page.to_string()),
+            ];
+            if let Some(poster) = poster {
+                query.push(("poster", poster.into()));
+            }
+            let (batch, has_next): (Vec<Option<PullRequest>>, _) =
+                self.get(&["repos", owner, name, "pulls"], &query).await?;
             let count = batch.len();
             pulls.extend(batch.into_iter().flatten().filter(|pr| {
                 let state_matches =
@@ -387,7 +399,11 @@ impl Session {
             }
             page += 1;
         }
-        pulls.sort_by_key(|pr| std::cmp::Reverse(pr.number));
+        pulls.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.number.cmp(&a.number))
+        });
         Ok(pulls)
     }
 }

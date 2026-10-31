@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import time
 import urllib.request
+from merge_retry import merge_retry
 
 BASE = 'http://forgejo:3000/api/v1'
 TOKEN = os.environ['E2E_TOKEN']
@@ -28,17 +29,21 @@ api('/user/settings', {'full_name': 'dirtydishes'}, 'PATCH')
 with urllib.request.urlopen('http://forgejo:3000/swagger.v1.json') as response:
     Path('/artifacts/forgejo-swagger.json').write_bytes(response.read())
 seed = json.loads(Path('/test/oracle/seed.json').read_text())
-api('/user/repos', {'name': 'gfj-oracle', 'private': True, 'default_branch': 'main'})
+metadata = json.loads(Path('/test/oracle/repository.seed.json').read_text())
+api('/user/repos', {'name': 'gfj-oracle', 'private': metadata['private'], 'description': metadata['description'], 'default_branch': 'main'})
 Path('/tmp/g2-seed').mkdir()
 os.chdir('/tmp/g2-seed')
 git('init', '-q', '-b', 'main')
 git('config', 'user.name', 'dirtydishes')
 git('config', 'user.email', 'dirtydishes@users.noreply.invalid')
-Path('README.md').write_text('main\n')
+Path('README.md').write_text(Path('/test/oracle/readme.md').read_text())
 git('add', '.'); git('commit', '-qm', 'main')
 for pr in sorted(seed, key=lambda pr: pr['number']):
     git('checkout', '-qb', pr['head']['ref'], 'main')
-    Path(pr['head']['ref'].replace('/', '-') + '.txt').write_text(pr['head']['ref'] + '\n')
+    if pr['number'] == 1:
+        subprocess.run(['git', 'apply', '-'], input=Path('/test/oracle/diff-1.stdout').read_bytes(), check=True)
+    else:
+        Path(pr['head']['ref'].replace('/', '-') + '.txt').write_text(pr['head']['ref'] + '\n')
     title = pr['title']
     git('add', '.'); git('commit', '-qm', title)
 git('-c', 'http.extraHeader=Authorization: token ' + TOKEN, 'push', '-q',
@@ -64,9 +69,16 @@ for pr in sorted(seed, key=lambda pr: pr['number']):
         for attempt in range(30):
             if api('/repos/' + REPO + f'/pulls/{number}')['mergeable']: break
             time.sleep(1)
-        api('/repos/' + REPO + f'/pulls/{number}/merge', {'Do': 'merge', 'delete_branch_after_merge': False})
+        merge_retry(lambda: api('/repos/' + REPO + f'/pulls/{number}/merge',
+            {'Do': 'merge', 'delete_branch_after_merge': False}), number)
     elif pr['state'] == 'closed':
         api('/repos/' + REPO + f'/pulls/{number}', {'state': 'closed'}, 'PATCH')
+for number in (11, 12):
+    issue = json.loads(Path(f'/test/oracle/issue-{number}.seed.json').read_text())
+    local = api('/repos/' + REPO + '/issues', {'title': issue['title'], 'body': issue['body'] or ''})
+    assert local['number'] == number, (local['number'], number)
+    if issue['state'] == 'closed':
+        api('/repos/' + REPO + f'/issues/{number}', {'state': 'closed'}, 'PATCH')
 # Wait for Forgejo's asynchronous conflict check before gh's single read.
 for attempt in range(30):
     pulls = api('/repos/' + REPO + '/pulls?state=open')
@@ -74,7 +86,7 @@ for attempt in range(30):
     time.sleep(1)
 else: raise SystemExit('Forgejo mergeability did not settle')
 Path('/artifacts/forgejo-pulls.json').write_text(json.dumps(api('/repos/' + REPO + '/pulls?state=all'), indent=2))
-print('Seeded oracle PRs 1-10, including status-only PRs 3 and 9')
+print('Seeded oracle PRs 1-10 and issues 11-12, including status-only PRs 3 and 9')
 
 # Forgejo's mergeable boolean also encodes WIP. Preserve the live single-PR response.
 Path('/artifacts/forgejo-draft.json').write_text(json.dumps(api('/repos/' + REPO + '/pulls/4'), indent=2))
