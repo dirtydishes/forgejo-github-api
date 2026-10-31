@@ -15,7 +15,7 @@ url.workspace = true
 sha2.workspace = true
 glob.workspace = true
 tokio.workspace = true
-serde_yaml = "0.9"
+yaml-rust2 = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 axum.workspace = true

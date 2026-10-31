@@ -5,6 +5,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+mod workflow_name;
+
 #[derive(Deserialize)]
 pub struct RunList {
     pub total_count: u64,
@@ -32,11 +34,6 @@ pub struct Workflow {
     pub path: String,
     pub state: &'static str,
 }
-#[derive(Deserialize)]
-struct WorkflowFile {
-    name: Option<String>,
-}
-
 pub fn workflow_id(filename: &str) -> i64 {
     let digest = Sha256::digest(filename.as_bytes());
     i64::from_be_bytes(digest[..8].try_into().expect("eight hash bytes")) & i64::MAX
@@ -122,9 +119,7 @@ impl Session {
                 }
                 let path = format!("{directory}/{filename}");
                 let content = self.file_text(owner, repo, &path).await?;
-                let file: WorkflowFile =
-                    serde_yaml::from_str(&content).map_err(|_| Error::Upstream)?;
-                let name = file.name.unwrap_or_else(|| path.clone());
+                let name = workflow_name::from_content(&content, &path);
                 workflows.insert(
                     filename.into(),
                     Workflow {
