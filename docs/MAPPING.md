@@ -134,7 +134,7 @@ Never emit `HAS_HOOKS`. `isMergeQueueEnabled` is always false. `viewerCanMergeAs
 | gh / GitHub | Forgejo |
 |---|---|
 | `mergePullRequest(pullRequestId, mergeMethod, commitHeadline, commitBody, expectedHeadOid)` | `POST pulls/{n}/merge {Do: merge\|squash\|rebase, MergeTitleField, MergeMessageField, head_commit_id}` |
-| head mismatch | Forgejo returns 409. The gateway returns the GraphQL error `Head branch was modified. Review and try the merge again.` with `type: "UNPROCESSABLE"`. The exact GitHub text is unconfirmed: capture it from the GitHub twin in G3 |
+| head mismatch | Forgejo returns 409. The gateway returns the GraphQL error `{"type":"UNPROCESSABLE","path":["mergePullRequest"],"message":"Head branch was modified. Review and try the merge again."}`. **Confirmed 2026-10-30** against the GitHub twin: gh prints `GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)` and exits 1 |
 | `enablePullRequestAutoMerge` | `POST pulls/{n}/merge {..., merge_when_checks_succeed: true}` |
 | `disablePullRequestAutoMerge` | `DELETE pulls/{n}/merge` (cancel scheduled merge) |
 | `autoMergeRequest` | **Open:** Forgejo's API has no "get scheduled merge". Candidates are the PR timeline (scheduled-merge comment type) or the issue comments API. Until verified, return `null`. G3 must solve this, because ChatGPT shows auto-merge state |
@@ -153,5 +153,5 @@ Node IDs are opaque base64 strings of `fga:<Type>:<owner>/<repo>:<number|id>`, p
    (`/dirtydishes/gfj-oracle/actions/runs/5/jobs/1`).
 3. **Skipped-job reporting** in Forgejo Actions.
 4. **Scheduled auto-merge discoverability** (`autoMergeRequest`).
-5. **GitHub's exact head-mismatch error text** (capture from the GitHub twin).
+5. ~~GitHub's exact head-mismatch error text~~: **confirmed**, see §6.
 6. **`reviewDecision` null rule**, compared against the GitHub twin with and without branch protection.
