@@ -42,6 +42,24 @@ class OracleTests(unittest.TestCase):
         for case in run.CASES:
             self.assertTrue(run.allowed(case['args']), case['id'])
 
+    def test_debug_capture_keeps_documents_without_headers(self):
+        debug = '> Authorization: token secret\nGraphQL query:\nquery Example { viewer { login } }\nGraphQL variables: {"q":"author:@me"}\n\n< Response\n{\n  "query":"query Introspection { __type(name: \"Issue\") { name } }"\n}\n> GET /repos/o/r/readme HTTP/1.1\n'
+        requests = run.debug_requests(debug)
+        self.assertEqual(requests[0]['variables'], {'q': 'author:@me'})
+        self.assertEqual(requests[-1], {'method': 'GET', 'path': '/repos/o/r/readme'})
+        self.assertNotIn('secret', json.dumps(requests))
+
+    def test_new_expected_failures_accept_only_rank_or_absent_run_data(self):
+        a = '[{"number":1},{"number":2}]'
+        b = '[{"number":2},{"number":1}]'
+        self.assertTrue(compare.expected_difference('list-search', a, b))
+        for wrong in ('[]', '[{"number":2}]', '[{"number":2},{"number":2}]', '[{"number":2,"title":"changed"},{"number":1}]'):
+            self.assertFalse(compare.expected_difference('list-search', a, wrong))
+        oracle = (Path(__file__).resolve().parents[2] / 'fixtures/oracle/runs.stdout').read_text()
+        self.assertTrue(compare.expected_difference('runs', oracle, ''))
+        self.assertFalse(compare.expected_difference('runs', oracle, 'unexpected run\n'))
+        self.assertFalse(compare.expected_difference('runs', '', ''))
+
     def test_normalization_preserves_semantics(self):
         a = compare.normalize('{"state":"OPEN","number":1,"detailsUrl":"https://github.com/check","id":"GITHUB_ID","url":"https://github.com/o/r/pull/1","createdAt":"2026-10-30T19:00:00Z"}', 'probe-1')
         b = compare.normalize('{"state":"OPEN","number":1,"detailsUrl":"https://forge.test/check","id":"FGA_ID","url":"https://forge.test/o/r/pulls/1","createdAt":"2020-01-01T00:00:00Z"}', 'probe-1')
@@ -65,7 +83,8 @@ class OracleTests(unittest.TestCase):
                     (actual / f"{case['id']}.{ext}").write_text(output)
             def check():
                 with contextlib.redirect_stdout(io.StringIO()):
-                    return compare.main(expected, actual)
+                    with patch.object(compare, 'EXPECTED_FAILURES', {'probe-4': compare.EXPECTED_FAILURES['probe-4']}):
+                        return compare.main(expected, actual)
             self.assertEqual(check(), 0)
             draft = actual / 'probe-4.stdout'
             original = draft.read_text()

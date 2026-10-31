@@ -21,6 +21,15 @@ pub struct Repository {
     pub fork: bool,
     pub archived: bool,
     pub permissions: Option<Permissions>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub ssh_url: String,
+    #[serde(default)]
+    pub has_issues: bool,
+    #[serde(default)]
+    pub has_wiki: bool,
+    pub parent: Option<Box<Repository>>,
 }
 
 #[derive(Clone, Debug, Deserialize, serde::Serialize)]
@@ -210,4 +219,25 @@ pub struct RequestedTeam {
 pub struct TeamOrganization {
     pub id: i64,
     pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Issue {
+    pub id: i64,
+    pub number: i32,
+    pub title: String,
+    pub body: Option<String>,
+    pub state: String,
+    pub html_url: String,
+    pub user: User,
+    pub created_at: String,
+    pub updated_at: String,
+    pub closed_at: Option<String>,
+    #[serde(default)]
+    pub labels: Vec<Label>,
+    pub assignees: Option<Vec<User>>,
+    pub milestone: Option<Milestone>,
+    #[serde(default)]
+    pub is_locked: bool,
+    pub pull_request: Option<serde_json::Value>,
 }

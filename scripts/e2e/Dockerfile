@@ -20,6 +20,6 @@ COPY scripts/e2e/client.sh /test/client.sh
 COPY scripts/e2e/assert.py /test/assert.py
 COPY fixtures/gh-pr-view.graphql /test/gh-pr-view.graphql
 
-COPY scripts/e2e/g2.sh scripts/e2e/seed.py /test/
+COPY scripts/e2e/g2.sh scripts/e2e/seed.py scripts/e2e/read-contract.py scripts/e2e/merge_retry.py /test/
 COPY scripts/oracle /test/oracle-scripts
 COPY fixtures/oracle /test/oracle

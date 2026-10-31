@@ -56,6 +56,29 @@ def known_difference(case, output):
     return output
 
 
+EXPECTED_FAILURES = {
+    'probe-4': 'Forgejo draft mergeability is ambiguous: mergeable and mergeStateStatus are UNKNOWN instead of MERGEABLE/CLEAN',
+    'runs': 'The oracle twin has completed Actions runs; the status-only local seed has no workflow runs. Native Actions are checked separately.',
+    'list-search': 'GitHub and Forgejo rank title-search matches differently; the complete result records must match as a multiset.',
+    'issues-search': 'GitHub and Forgejo rank title-search matches differently; the complete result records must match as a multiset.',
+}
+
+
+def expected_difference(case, oracle, gateway):
+    if case == 'probe-4': return oracle == known_difference(case, gateway)
+    if case == 'runs':
+        rows = [line.split('\t') for line in oracle.splitlines()]
+        return gateway == '' and len(rows) == 5 and all(len(row) == 9 and row[:2] == ['completed', 'success'] and row[3] == 'ci' for row in rows)
+    if case in ('list-search', 'issues-search'):
+        try: a, b = json.loads(oracle), json.loads(gateway)
+        except ValueError: return False
+        keys = {'number'} if case == 'list-search' else {'number', 'state', 'title'}
+        if not isinstance(a, list) or not isinstance(b, list) or not a or not b: return False
+        if not all(isinstance(v, dict) and set(v) == keys for v in a + b): return False
+        return sorted(json.dumps(v, sort_keys=True) for v in a) == sorted(json.dumps(v, sort_keys=True) for v in b)
+    return False
+
+
 def main(expected, actual):
     counts = dict(passed=0, xfail=0, unexpected=0)
     report = []
@@ -69,12 +92,12 @@ def main(expected, actual):
             b = normalize((actual / f'{case}.{ext}').read_text(), case)
             if a != b:
                 matches = False
-                known &= ext == 'stdout' and a == known_difference(case, b)
+                known &= ext == 'stdout' and expected_difference(case, a, b)
                 diffs.extend(difflib.unified_diff(a.splitlines(), b.splitlines(), fromfile='oracle.'+ext, tofile='gateway.'+ext, lineterm=''))
-        expected_failure = case == 'probe-4'
+        expected_failure = case in EXPECTED_FAILURES
         state = 'pass' if matches and not expected_failure else 'xfail' if not matches and known and expected_failure else 'unexpected'
         counts[{'pass':'passed','xfail':'xfail','unexpected':'unexpected'}[state]] += 1
-        reason = 'Forgejo draft mergeability is ambiguous: mergeable and mergeStateStatus are UNKNOWN instead of MERGEABLE/CLEAN' if state == 'xfail' else ''
+        reason = EXPECTED_FAILURES[case] if state == 'xfail' else ''
         print(f'{state.upper()} {case}' + (': ' + reason if reason else ''))
         if state != 'pass': print('\n'.join(diffs) if diffs else 'expected difference disappeared; remove xfail after review')
         report.append(dict(id=case, result=state, reason=reason, diff=diffs))

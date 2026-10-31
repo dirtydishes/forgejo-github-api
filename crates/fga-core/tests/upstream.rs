@@ -62,7 +62,7 @@ async fn forwards_auth_and_filters_across_short_upstream_pages() {
     ));
     let session = forgejo.authenticate("bearer disposable").await.unwrap();
     let prs = session
-        .pull_requests("e2e", "oracle", "all", Some("e2e:s/pass"))
+        .pull_requests("e2e", "oracle", "all", Some("e2e:s/pass"), None)
         .await
         .unwrap();
     assert_eq!(prs.iter().map(|p| p.number).collect::<Vec<_>>(), [2, 1]);

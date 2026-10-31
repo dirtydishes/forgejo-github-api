@@ -21,6 +21,7 @@ macro_rules! string_scalar {
     };
 }
 string_scalar!(Uri, "URI");
+string_scalar!(GitSshRemote, "GitSSHRemote");
 string_scalar!(DateTime, "DateTime");
 string_scalar!(GitObjectId, "GitObjectID");
 string_scalar!(BigInt, "BigInt");
