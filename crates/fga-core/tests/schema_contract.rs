@@ -1,6 +1,8 @@
 use async_graphql::parser::{
     parse_schema,
-    types::{TypeDefinition, TypeKind, TypeSystemDefinition},
+    types::{
+        FieldDefinition, InputValueDefinition, TypeDefinition, TypeKind, TypeSystemDefinition,
+    },
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -15,85 +17,108 @@ fn types(sdl: &str) -> BTreeMap<String, TypeDefinition> {
         })
         .collect()
 }
-
+fn arguments(
+    actual: &[async_graphql::Positioned<InputValueDefinition>],
+    expected: &[async_graphql::Positioned<InputValueDefinition>],
+) {
+    for a in actual {
+        let e = expected
+            .iter()
+            .find(|e| e.node.name == a.node.name)
+            .expect("known argument/input field");
+        assert_eq!(
+            a.node.ty.node, e.node.ty.node,
+            "{} type/nullability",
+            a.node.name
+        );
+        assert_eq!(
+            a.node.default_value.as_ref().map(|v| &v.node),
+            e.node.default_value.as_ref().map(|v| &v.node),
+            "{} default",
+            a.node.name
+        );
+    }
+    for e in expected {
+        if !e.node.ty.node.nullable && e.node.default_value.is_none() {
+            assert!(
+                actual.iter().any(|a| a.node.name == e.node.name),
+                "missing required input"
+            );
+        }
+    }
+}
+fn fields(
+    name: &str,
+    actual: &[async_graphql::Positioned<FieldDefinition>],
+    expected: &[async_graphql::Positioned<FieldDefinition>],
+) {
+    assert_eq!(
+        actual
+            .iter()
+            .map(|f| f.node.name.to_string())
+            .collect::<BTreeSet<_>>(),
+        expected.iter().map(|f| f.node.name.to_string()).collect(),
+        "{name} pinned fields"
+    );
+    for a in actual {
+        let e = expected
+            .iter()
+            .find(|e| e.node.name == a.node.name)
+            .expect("known field");
+        assert_eq!(
+            a.node.ty.node, e.node.ty.node,
+            "{name}.{} type/nullability",
+            a.node.name
+        );
+        arguments(&a.node.arguments, &e.node.arguments);
+    }
+}
 #[test]
 fn implemented_sdl_is_a_subset_of_pinned_github_schema() {
     let reference = types(include_str!("../../../fixtures/github-g1.graphql"));
     let implemented = types(&fga_core::graphql::schema().sdl());
-    for (name, actual) in &implemented {
-        if matches!(name.as_str(), "Int" | "String" | "Boolean" | "ID") {
+    for (name, a) in &implemented {
+        if matches!(name.as_str(), "Int" | "String" | "Boolean" | "ID" | "Float") {
             continue;
         }
-        let expected = reference
+        let e = reference
             .get(name)
             .unwrap_or_else(|| panic!("unknown type {name}"));
-        match (&actual.kind, &expected.kind) {
+        match (&a.kind, &e.kind) {
             (TypeKind::Scalar, TypeKind::Scalar) => {}
-            (TypeKind::Object(actual), TypeKind::Object(expected)) => {
-                let fields = |object: &async_graphql::parser::types::ObjectType| {
-                    object
-                        .fields
+            (TypeKind::Object(a), TypeKind::Object(e)) => {
+                fields(name, &a.fields, &e.fields);
+                assert!(
+                    a.implements
                         .iter()
-                        .map(|f| f.node.name.to_string())
+                        .map(|n| n.node.to_string())
                         .collect::<BTreeSet<_>>()
-                };
-                assert_eq!(fields(actual), fields(expected), "{name} G1 fields");
-                for field in &actual.fields {
-                    let expected = expected
-                        .fields
-                        .iter()
-                        .find(|f| f.node.name == field.node.name)
-                        .unwrap_or_else(|| panic!("unknown field {name}.{}", field.node.name));
-                    assert_eq!(
-                        field.node.ty.node, expected.node.ty.node,
-                        "{name}.{} type/nullability",
-                        field.node.name
-                    );
-                    for arg in &field.node.arguments {
-                        let expected = expected
-                            .node
-                            .arguments
-                            .iter()
-                            .find(|a| a.node.name == arg.node.name)
-                            .expect("known argument");
-                        assert_eq!(
-                            arg.node.ty.node, expected.node.ty.node,
-                            "argument type/nullability"
-                        );
-                        assert_eq!(
-                            arg.node.default_value.as_ref().map(|v| &v.node),
-                            expected.node.default_value.as_ref().map(|v| &v.node),
-                            "argument default"
-                        );
-                    }
-                    for arg in &expected.node.arguments {
-                        if !arg.node.ty.node.nullable && arg.node.default_value.is_none() {
-                            assert!(
-                                field
-                                    .node
-                                    .arguments
-                                    .iter()
-                                    .any(|a| a.node.name == arg.node.name),
-                                "missing required argument"
-                            );
-                        }
-                    }
-                }
+                        .is_subset(&e.implements.iter().map(|n| n.node.to_string()).collect()),
+                    "{name} interfaces must exist upstream"
+                );
             }
-            (TypeKind::Enum(actual), TypeKind::Enum(expected)) => {
-                let names = |values: &async_graphql::parser::types::EnumType| {
-                    values
-                        .values
-                        .iter()
-                        .map(|v| v.node.value.to_string())
-                        .collect::<BTreeSet<_>>()
-                };
-                assert_eq!(names(actual), names(expected), "{name} enum values");
-            }
+            (TypeKind::Interface(a), TypeKind::Interface(e)) => fields(name, &a.fields, &e.fields),
+            (TypeKind::InputObject(a), TypeKind::InputObject(e)) => arguments(&a.fields, &e.fields),
+            (TypeKind::Enum(a), TypeKind::Enum(e)) => assert_eq!(
+                a.values
+                    .iter()
+                    .map(|v| v.node.value.to_string())
+                    .collect::<BTreeSet<_>>(),
+                e.values.iter().map(|v| v.node.value.to_string()).collect(),
+                "{name} enum values"
+            ),
+            (TypeKind::Union(a), TypeKind::Union(e)) => assert_eq!(
+                a.members
+                    .iter()
+                    .map(|m| m.node.to_string())
+                    .collect::<BTreeSet<_>>(),
+                e.members.iter().map(|m| m.node.to_string()).collect(),
+                "{name} pinned union members"
+            ),
             _ => panic!("{name} type kind differs"),
         }
     }
     for name in reference.keys() {
-        assert!(implemented.contains_key(name), "missing G1 type {name}");
+        assert!(implemented.contains_key(name), "missing pinned type {name}");
     }
 }

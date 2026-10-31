@@ -81,7 +81,7 @@ pub async fn pulls(
         .iter()
         .skip(start)
         .take(per_page)
-        .map(map::pull_request)
+        .map(|pr| map::pull_request(pr, &state.wip_prefixes))
         .collect();
     let last = pulls.len().div_ceil(per_page).max(1);
     let mut headers = HeaderMap::new();
@@ -124,4 +124,20 @@ fn invalid_query() -> Response {
         Json(json!({"message": "Validation Failed"})),
     )
         .into_response()
+}
+
+// gh pr status reads this REST resource for its mergeability detail.
+pub async fn pull(
+    State(state): State<AppState>,
+    Extension(session): Extension<Session>,
+    Path((owner, repo, number)): Path<(String, String, i32)>,
+) -> Response {
+    match session.pull_request(&owner, &repo, number).await {
+        Ok(pr) => {
+            let mut value = map::pull_request(&pr, &state.wip_prefixes);
+            value["mergeable"] = json!(pr.mergeable);
+            Json(value).into_response()
+        }
+        Err(e) => rest_error(e),
+    }
 }

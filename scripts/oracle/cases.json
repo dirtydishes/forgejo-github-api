@@ -1,0 +1,141 @@
+[
+  {
+    "id": "view-1",
+    "args": [
+      "pr",
+      "view",
+      "1"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "view-2",
+    "args": [
+      "pr",
+      "view",
+      "2"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "view-4",
+    "args": [
+      "pr",
+      "view",
+      "4"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "probe-1",
+    "args": [
+      "pr",
+      "view",
+      "1",
+      "--json",
+      "number,title,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefName,baseRefName,reviewDecision"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "probe-2",
+    "args": [
+      "pr",
+      "view",
+      "2",
+      "--json",
+      "number,title,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefName,baseRefName,reviewDecision"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "probe-4",
+    "args": [
+      "pr",
+      "view",
+      "4",
+      "--json",
+      "number,title,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefName,baseRefName,reviewDecision"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "probe-5",
+    "args": [
+      "pr",
+      "view",
+      "5",
+      "--json",
+      "number,title,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefName,baseRefName,reviewDecision"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "merged-6",
+    "args": [
+      "pr",
+      "view",
+      "6",
+      "--json",
+      "state,mergedAt"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "closed-7",
+    "args": [
+      "pr",
+      "view",
+      "7",
+      "--json",
+      "state,closed"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "checks-1",
+    "args": [
+      "pr",
+      "checks",
+      "1"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "checks-2",
+    "args": [
+      "pr",
+      "checks",
+      "2"
+    ],
+    "exit": 1
+  },
+  {
+    "id": "checks-5",
+    "args": [
+      "pr",
+      "checks",
+      "5"
+    ],
+    "exit": 1
+  },
+  {
+    "id": "status",
+    "args": [
+      "pr",
+      "status"
+    ],
+    "exit": 0
+  },
+  {
+    "id": "wide-1",
+    "args": [
+      "pr",
+      "view",
+      "1",
+      "--json",
+      "additions,author,autoMergeRequest,baseRefName,body,closed,comments,commits,createdAt,deletions,headRefName,headRefOid,isDraft,latestReviews,mergedAt,mergedBy,mergeStateStatus,mergeable,number,reviews,reviewDecision,reviewRequests,state,title,updatedAt,url,statusCheckRollup"
+    ],
+    "exit": 0
+  }
+]

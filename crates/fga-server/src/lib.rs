@@ -13,6 +13,7 @@ use axum::{
 use fga_core::{
     forgejo::{Error, Forgejo, Session},
     graphql::{self, GithubSchema},
+    map::WipPrefixes,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -22,15 +23,22 @@ pub struct AppState {
     pub forgejo: Forgejo,
     pub public_url: Url,
     pub ghes_version: String,
+    pub wip_prefixes: WipPrefixes,
     schema: GithubSchema,
 }
 
 impl AppState {
-    pub fn new(forgejo: Forgejo, public_url: Url, ghes_version: String) -> Self {
+    pub fn new(
+        forgejo: Forgejo,
+        public_url: Url,
+        ghes_version: String,
+        wip_prefixes: WipPrefixes,
+    ) -> Self {
         Self {
             forgejo,
             public_url,
             ghes_version,
+            wip_prefixes,
             schema: graphql::schema(),
         }
     }
@@ -43,6 +51,10 @@ pub fn app(state: AppState) -> Router {
         .route("/api/v3/user", get(rest::user))
         .route("/api/v3/repos/{owner}/{repo}", get(rest::repository))
         .route("/api/v3/repos/{owner}/{repo}/pulls", get(rest::pulls))
+        .route(
+            "/api/v3/repos/{owner}/{repo}/pulls/{number}",
+            get(rest::pull),
+        )
         .route("/api/graphql", post(graphql_request))
         .fallback(|| async { rest_error(Error::NotFound) })
         .layer(middleware::from_fn_with_state(state.clone(), authenticate))
@@ -73,7 +85,15 @@ async fn graphql_request(
     Extension(session): Extension<Session>,
     Json(request): Json<Request>,
 ) -> Json<Value> {
-    let response = state.schema.execute(request.data(session)).await;
+    let response = state
+        .schema
+        .execute(
+            request
+                .data(session)
+                .data(state.public_url)
+                .data(state.wip_prefixes),
+        )
+        .await;
     let mut value = serde_json::to_value(response).expect("GraphQL response is serializable");
     if let Some(errors) = value.get_mut("errors").and_then(Value::as_array_mut) {
         for error in errors {
