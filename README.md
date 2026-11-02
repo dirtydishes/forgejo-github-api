@@ -1,5 +1,12 @@
 # forgejo-github-api
 
+> **This repository has moved.** The gateway now lives in
+> [gh-forgejo-shim](https://github.com/dirtydishes/gh-forgejo-shim), with its full history, as
+> `crates/fga-core` and `crates/fga-server`. Its docs are in
+> [`docs/gateway/`](https://github.com/dirtydishes/gh-forgejo-shim/tree/rewrite/docs/gateway). It is
+> on the `rewrite` branch until that branch ships. This repository is archived and gets no further
+> changes. File issues and pull requests against gh-forgejo-shim.
+
 A stateless gateway that serves GitHub Enterprise API routes for Forgejo. It forwards each client's
 Forgejo token to the upstream server and maps Forgejo responses to GitHub's JSON and GraphQL types.
 
